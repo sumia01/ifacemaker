@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/mkideal/cli"
-	"github.com/vburenin/ifacemaker/maker"
+	"github.com/nkovacs/ifacemaker/maker"
 )
 
 type cmdlineArgs struct {
