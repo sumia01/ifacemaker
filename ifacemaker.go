@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
+	"path/filepath"
 
 	"github.com/mkideal/cli"
 	"github.com/vburenin/ifacemaker/maker"
@@ -24,7 +26,32 @@ func run(args *cmdlineArgs) {
 	allImports := []string{}
 	mset := make(map[string]struct{})
 	iset := make(map[string]struct{})
+	allFiles := []string{}
 	for _, f := range args.Files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		if fi.IsDir() {
+			dir, err := os.Open(f)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			dirFiles, err := dir.Readdirnames(-1)
+			dir.Close()
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			for _, name := range dirFiles {
+				allFiles = append(allFiles, filepath.Join(f, name))
+			}
+		} else {
+			allFiles = append(allFiles, f)
+		}
+	}
+
+	for _, f := range allFiles {
+
 		src, err := ioutil.ReadFile(f)
 		if err != nil {
 			log.Fatal(err.Error())
