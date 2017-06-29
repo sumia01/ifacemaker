@@ -61,6 +61,46 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 		return errors.Wrap(err, "parsing file failed")
 	}
 
+	hasMethods := false
+	for _, d := range a.Decls {
+		if a, fd := m.getReceiverTypeName(d); a == m.StructName {
+			if !fd.Name.IsExported() {
+				continue
+			}
+			hasMethods = true
+			methodName := fd.Name.String()
+			if _, ok := m.methodNames[methodName]; ok {
+				continue
+			}
+
+			params, err := m.printParameters(fd.Type.Params)
+			if err != nil {
+				return errors.Wrap(err, "failed printing parameters")
+			}
+			ret, err := m.printParameters(fd.Type.Results)
+			if err != nil {
+				return errors.Wrap(err, "failed printing return values")
+			}
+			code := fmt.Sprintf("%s(%s) (%s)", methodName, params, ret)
+			var docs []string
+			if fd.Doc != nil && m.CopyDocs {
+				for _, d := range fd.Doc.List {
+					docs = append(docs, d.Text)
+				}
+			}
+			m.methodNames[methodName] = struct{}{}
+			m.methods = append(m.methods, &method{
+				Code: code,
+				Docs: docs,
+			})
+		}
+	}
+	// No point checking imports if there are no relevant methods in this file.
+	// This also avoids throwing unnecessary errors about imports in files that
+	// are not relevant.
+	if !hasMethods {
+		return nil
+	}
 	for _, i := range a.Imports {
 		alias := ""
 		if i.Name != nil {
@@ -102,38 +142,6 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 			m.importsByPath[path] = imp
 			m.importsByAlias[alias] = imp
 			m.imports = append(m.imports, imp)
-		}
-	}
-	for _, d := range a.Decls {
-		if a, fd := m.getReceiverTypeName(d); a == m.StructName {
-			if !fd.Name.IsExported() {
-				continue
-			}
-			methodName := fd.Name.String()
-			if _, ok := m.methodNames[methodName]; ok {
-				continue
-			}
-
-			params, err := m.printParameters(fd.Type.Params)
-			if err != nil {
-				return errors.Wrap(err, "failed printing parameters")
-			}
-			ret, err := m.printParameters(fd.Type.Results)
-			if err != nil {
-				return errors.Wrap(err, "failed printing return values")
-			}
-			code := fmt.Sprintf("%s(%s) (%s)", methodName, params, ret)
-			var docs []string
-			if fd.Doc != nil && m.CopyDocs {
-				for _, d := range fd.Doc.List {
-					docs = append(docs, d.Text)
-				}
-			}
-			m.methodNames[methodName] = struct{}{}
-			m.methods = append(m.methods, &method{
-				Code: code,
-				Docs: docs,
-			})
 		}
 	}
 
