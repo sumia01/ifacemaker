@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/mkideal/cli"
@@ -12,7 +13,7 @@ import (
 
 type cmdlineArgs struct {
 	cli.Helper
-	Files      []string `cli:"*f,file" usage:"Go source file to read"`
+	Files      []string `cli:"*f,file" usage:"Go source file or directory to read"`
 	StructType string   `cli:"*s,struct" usage:"Generate an interface for this structure name"`
 	IfaceName  string   `cli:"*i,iface" usage:"Name of the generated interface"`
 	PkgName    string   `cli:"*p,pkg" usage:"Package name for the generated interface"`
@@ -25,7 +26,33 @@ func run(args *cmdlineArgs) {
 		StructName: args.StructType,
 		CopyDocs:   args.CopyDocs,
 	}
+	allFiles := []string{}
 	for _, f := range args.Files {
+		fi, err := os.Stat(f)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		if fi.IsDir() {
+			dir, err := os.Open(f)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			dirFiles, err := dir.Readdir(-1)
+			dir.Close()
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+			for _, fi := range dirFiles {
+				if !fi.IsDir() {
+					allFiles = append(allFiles, filepath.Join(f, fi.Name()))
+				}
+			}
+		} else {
+			allFiles = append(allFiles, f)
+		}
+	}
+
+	for _, f := range allFiles {
 		src, err := ioutil.ReadFile(f)
 		if err != nil {
 			log.Fatal(err.Error())
