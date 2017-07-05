@@ -37,13 +37,15 @@ func run(args *cmdlineArgs) {
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			dirFiles, err := dir.Readdirnames(-1)
+			dirFiles, err := dir.Readdir(-1)
 			dir.Close()
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			for _, name := range dirFiles {
-				allFiles = append(allFiles, filepath.Join(f, name))
+			for _, fi := range dirFiles {
+				if !fi.IsDir() {
+					allFiles = append(allFiles, filepath.Join(f, fi.Name()))
+				}
 			}
 		} else {
 			allFiles = append(allFiles, f)
