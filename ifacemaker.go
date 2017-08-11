@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/mkideal/cli"
 	"github.com/nkovacs/ifacemaker/maker"
@@ -42,11 +43,14 @@ func run(args *cmdlineArgs) {
 			if err != nil {
 				log.Fatal(err.Error())
 			}
+			dirFileNames := []string{}
 			for _, fi := range dirFiles {
 				if !fi.IsDir() {
-					allFiles = append(allFiles, filepath.Join(f, fi.Name()))
+					dirFileNames = append(dirFileNames, filepath.Join(f, fi.Name()))
 				}
 			}
+			sort.Strings(dirFileNames)
+			allFiles = append(allFiles, dirFileNames...)
 		} else {
 			allFiles = append(allFiles, f)
 		}
