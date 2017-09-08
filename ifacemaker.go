@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mkideal/cli"
 	"github.com/nkovacs/ifacemaker/maker"
@@ -45,7 +46,7 @@ func run(args *cmdlineArgs) {
 			}
 			dirFileNames := []string{}
 			for _, fi := range dirFiles {
-				if !fi.IsDir() {
+				if !fi.IsDir() && strings.HasSuffix(fi.Name(), ".go") {
 					dirFileNames = append(dirFileNames, filepath.Join(f, fi.Name()))
 				}
 			}
