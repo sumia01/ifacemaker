@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pkg/errors"
 
@@ -182,12 +183,48 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 }
 
 func (m *Maker) cleanParams(param string) string {
-	expl := strings.Split(param, ".")
-	if len(expl) == 2 && expl[0] == m.PkgNameUsedInSourceStruct {
-		return expl[1]
+	pattern := m.PkgNameUsedInSourceStruct + "."
+	patternLen := len(pattern)
+
+	// skip non-related params
+	if strings.LastIndex(param, pattern) < 0 {
+		return param
+	}
+	res := ""
+	isLetter := func(r rune) bool {
+		return unicode.IsLetter(r) || string(r) == "_"
 	}
 
-	return param
+	expl := strings.SplitAfter(param, pattern)
+	for i, part := range expl {
+		// add last element to result, because it not contains the pattern
+		if i == len(expl)-1 {
+			res += part
+			break
+		}
+
+		// skip pattern
+		if part == pattern {
+			continue
+		}
+
+		// add to res because it's not the pattern but we can't check the last string before pattern len because part is shorter than pattern
+		if len(part) == patternLen {
+			res += part
+			continue
+		}
+
+		// its not the filtered package
+		if isLetter(rune(part[len(part)-patternLen-1])) {
+			res += part
+			continue
+		}
+
+		// cut the end of the part because it's the filtered package
+		res += part[:len(part)-patternLen]
+	}
+
+	return res
 }
 
 func (m *Maker) makeInterface(pkgName, ifaceName string) string {
