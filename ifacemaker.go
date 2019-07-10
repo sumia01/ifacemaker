@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/mkideal/cli"
-	"github.com/nkovacs/ifacemaker/maker"
+	"github.com/sumia01/ifacemaker/maker"
 )
 
 type cmdlineArgs struct {
