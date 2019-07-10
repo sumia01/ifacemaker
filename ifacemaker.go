@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/mkideal/cli"
-	"github.com/nkovacs/ifacemaker/maker"
+	"github.com/sumia01/ifacemaker/maker"
 )
 
 type cmdlineArgs struct {
@@ -24,11 +24,13 @@ type cmdlineArgs struct {
 }
 
 func run(args *cmdlineArgs) {
-	maker := &maker.Maker{
-		StructName: args.StructType,
-		CopyDocs:   args.CopyDocs,
+	m := &maker.Maker{
+		StructName:                args.StructType,
+		CopyDocs:                  args.CopyDocs,
+		Output:                    args.Output,
+		PkgNameUsedInSourceStruct: args.PkgName,
 	}
-	allFiles := []string{}
+	var allFiles []string
 	for _, f := range args.Files {
 		fi, err := os.Stat(f)
 		if err != nil {
@@ -40,11 +42,14 @@ func run(args *cmdlineArgs) {
 				log.Fatal(err.Error())
 			}
 			dirFiles, err := dir.Readdir(-1)
-			dir.Close()
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			dirFileNames := []string{}
+			err = dir.Close()
+			if err != nil {
+				log.Fatalf("dir.Close(): %v", err)
+			}
+			var dirFileNames []string
 			for _, fi := range dirFiles {
 				if !fi.IsDir() && strings.HasSuffix(fi.Name(), ".go") {
 					dirFileNames = append(dirFileNames, filepath.Join(f, fi.Name()))
@@ -62,13 +67,13 @@ func run(args *cmdlineArgs) {
 		if err != nil {
 			log.Fatal(err.Error())
 		}
-		err = maker.ParseSource(src, filepath.Base(f))
+		err = m.ParseSource(src, filepath.Base(f))
 		if err != nil {
 			log.Fatal(err.Error())
 		}
 	}
 
-	result, err := maker.MakeInterface(args.PkgName, args.IfaceName)
+	result, err := m.MakeInterface(args.PkgName, args.IfaceName)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -76,9 +81,11 @@ func run(args *cmdlineArgs) {
 	if args.Output == "" {
 		fmt.Println(string(result))
 	} else {
-		ioutil.WriteFile(args.Output, result, 0644)
+		err = ioutil.WriteFile(args.Output, result, 0644)
+		if err != nil {
+			log.Fatalf("ioutil.WriteFile(args.Output, result, 0644): %v", err)
+		}
 	}
-
 }
 
 func main() {

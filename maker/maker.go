@@ -7,8 +7,11 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/pkg/errors"
 
@@ -29,6 +32,10 @@ type Maker struct {
 	imports        []*importedPkg
 	methods        []*method
 	methodNames    map[string]struct{}
+
+	funcDecks                 []*ast.FuncDecl
+	Output                    string
+	PkgNameUsedInSourceStruct string
 }
 
 // errorAlias formats the alias for error messages.
@@ -43,6 +50,13 @@ func errorAlias(alias string) string {
 // ParseSource parses the source code in src.
 // filename is used for position information only.
 func (m *Maker) ParseSource(src []byte, filename string) error {
+	currentPath, err := os.Getwd()
+	if err != nil {
+		return errors.Wrap(err, "os.Getwd()")
+	}
+
+	targetPath := filepath.Dir(currentPath + string(os.PathSeparator) + m.Output)
+
 	if m.fset == nil {
 		m.fset = token.NewFileSet()
 	}
@@ -73,26 +87,7 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 				continue
 			}
 
-			params, err := m.printParameters(fd.Type.Params)
-			if err != nil {
-				return errors.Wrap(err, "failed printing parameters")
-			}
-			ret, err := m.printParameters(fd.Type.Results)
-			if err != nil {
-				return errors.Wrap(err, "failed printing return values")
-			}
-			code := fmt.Sprintf("%s(%s) (%s)", methodName, params, ret)
-			var docs []string
-			if fd.Doc != nil && m.CopyDocs {
-				for _, d := range fd.Doc.List {
-					docs = append(docs, d.Text)
-				}
-			}
-			m.methodNames[methodName] = struct{}{}
-			m.methods = append(m.methods, &method{
-				Code: code,
-				Docs: docs,
-			})
+			m.funcDecks = append(m.funcDecks, fd)
 		}
 	}
 	// No point checking imports if there are no relevant methods in this file.
@@ -101,10 +96,11 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 	if !hasMethods {
 		return nil
 	}
-	for _, i := range a.Imports {
+
+	for _, imp := range a.Imports {
 		alias := ""
-		if i.Name != nil {
-			alias = i.Name.String()
+		if imp.Name != nil {
+			alias = imp.Name.String()
 		}
 		if alias == "." {
 			// Ignore dot imports.
@@ -118,10 +114,18 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 			// and everything will be fine.
 			continue
 		}
-		path, err := strconv.Unquote(i.Path.Value)
+		path, err := strconv.Unquote(imp.Path.Value)
 		if err != nil {
-			return errors.Wrapf(err, "parsing import `%v` failed", i.Path.Value)
+			return errors.Wrapf(err, "parsing import `%v` failed", imp.Path.Value)
 		}
+
+		if strings.HasSuffix(targetPath, path) {
+			if alias != "" {
+				m.PkgNameUsedInSourceStruct = alias
+			}
+			continue
+		}
+
 		if existing, ok := m.importsByPath[path]; ok && existing.Alias != alias {
 			// It would be possible to pick one alias and rewrite all the types,
 			// but that would require parsing all the imports to find the correct
@@ -145,7 +149,82 @@ func (m *Maker) ParseSource(src []byte, filename string) error {
 		}
 	}
 
+	for _, fd := range m.funcDecks {
+		methodName := fd.Name.String()
+
+		if _, ok := m.methodNames[methodName]; ok {
+			continue
+		}
+
+		params, err := m.printParameters(fd.Type.Params)
+		if err != nil {
+			return errors.Wrap(err, "failed printing parameters")
+		}
+
+		ret, err := m.printParameters(fd.Type.Results)
+		if err != nil {
+			return errors.Wrap(err, "failed printing return values")
+		}
+		code := fmt.Sprintf("%s(%s) (%s)", methodName, params, ret)
+		var docs []string
+		if fd.Doc != nil && m.CopyDocs {
+			for _, d := range fd.Doc.List {
+				docs = append(docs, d.Text)
+			}
+		}
+		m.methodNames[methodName] = struct{}{}
+		m.methods = append(m.methods, &method{
+			Code: code,
+			Docs: docs,
+		})
+	}
+
 	return nil
+}
+
+func (m *Maker) cleanParams(param string) string {
+	pattern := m.PkgNameUsedInSourceStruct + "."
+	patternLen := len(pattern)
+
+	// skip non-related params
+	if strings.LastIndex(param, pattern) < 0 {
+		return param
+	}
+	res := ""
+	isLetter := func(r rune) bool {
+		return unicode.IsLetter(r) || string(r) == "_"
+	}
+
+	expl := strings.SplitAfter(param, pattern)
+	for i, part := range expl {
+		// add last element to result, because it not contains the pattern
+		if i == len(expl)-1 {
+			res += part
+			break
+		}
+
+		// skip pattern
+		if part == pattern {
+			continue
+		}
+
+		// add to res because it's not the pattern but we can't check the last string before pattern len because part is shorter than pattern
+		if len(part) == patternLen {
+			res += part
+			continue
+		}
+
+		// its not the filtered package
+		if isLetter(rune(part[len(part)-patternLen-1])) {
+			res += part
+			continue
+		}
+
+		// cut the end of the part because it's the filtered package
+		res += part[:len(part)-patternLen]
+	}
+
+	return res
 }
 
 func (m *Maker) makeInterface(pkgName, ifaceName string) string {
@@ -155,13 +234,17 @@ func (m *Maker) makeInterface(pkgName, ifaceName string) string {
 		"package " + pkgName,
 		"import (",
 	}
+
 	for _, pkgImport := range m.imports {
-		output = append(output, pkgImport.Lines()...)
+		if pkgImport != nil {
+			output = append(output, pkgImport.Lines()...)
+		}
 	}
 	output = append(output,
 		")",
 		fmt.Sprintf("type %s interface {", ifaceName),
 	)
+
 	for _, method := range m.methods {
 		output = append(output, method.Lines()...)
 	}
@@ -249,9 +332,15 @@ func (m *Maker) printParameters(fl *ast.FieldList) (string, error) {
 				fmt.Fprint(buff, " ")
 			}
 		}
-		err := printer.Fprint(buff, m.fset, field.Type)
+		currTypeBuf := &bytes.Buffer{}
+		err := printer.Fprint(currTypeBuf, m.fset, field.Type)
 		if err != nil {
 			return "", errors.Wrap(err, "failed printing parameter type")
+		}
+
+		_, err = buff.WriteString(m.cleanParams(currTypeBuf.String()))
+		if err != nil {
+			return "", errors.Wrap(err, "buff.ReadFrom(currTypeBuf)")
 		}
 		if ii < ll-1 {
 			fmt.Fprint(buff, ",")
